@@ -1,0 +1,86 @@
+:root {
+  color-scheme: dark;
+  --panel-bg: rgba(16, 14, 14, 0.58);
+  --panel-border: rgba(255, 199, 93, 0.34);
+  --text-main: #f7efe4;
+  --text-dim: rgba(247, 239, 228, 0.8);
+  --accent: #ffc75a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #110d0d;
+  cursor: crosshair;
+}
+
+body {
+  font-family: "Space Grotesk", sans-serif;
+}
+
+#game {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.hud {
+  position: fixed;
+  top: 1.25rem;
+  left: 1.25rem;
+  width: min(28rem, calc(100vw - 2.5rem));
+  padding: 1rem 1.1rem 1.15rem;
+  color: var(--text-main);
+  background:
+    linear-gradient(135deg, rgba(255, 125, 54, 0.22), rgba(12, 12, 14, 0.72)),
+    var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 1rem;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 1.2rem 3rem rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.eyebrow {
+  margin: 0 0 0.45rem;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+}
+
+h1 {
+  margin: 0;
+  font-family: "Rubik Mono One", sans-serif;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  line-height: 0.96;
+  text-shadow: 0.18rem 0.18rem 0 rgba(16, 9, 9, 0.5);
+}
+
+.instructions {
+  margin: 0.9rem 0 0;
+  max-width: 34ch;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .hud {
+    top: 0.85rem;
+    left: 0.85rem;
+    width: calc(100vw - 1.7rem);
+    padding: 0.9rem 0.95rem 1rem;
+  }
+
+  .instructions {
+    font-size: 0.88rem;
+  }
+}
