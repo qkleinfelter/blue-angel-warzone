@@ -53,6 +53,10 @@ const SMOKE_INTERVAL = 42;
 const SMOKE_LIFE = 520;
 const DEATH_SMOKE_LIFE = 950;
 const MAX_SMOKE_PARTICLES = 55;
+const SONIC_BOOM_SPEED_THRESHOLD = 1240;
+const SONIC_BOOM_COOLDOWN = 800;
+const SONIC_BOOM_LIFE = 260;
+const MAX_SONIC_BOOMS = 6;
 
 const PLAYER_HIT_COOLDOWN = 420;
 const HIT_SPARK_LIFE = 180;
@@ -130,6 +134,7 @@ const enemyBullets = [];
 const smoke = [];
 const enemies = [];
 const sparks = [];
+const sonicBooms = [];
 
 const input = {
   mouseDown: false,
@@ -152,6 +157,8 @@ let lastPlayerShotAt = 0;
 let lastRocketShotAt = 0;
 let lastSmokeAt = 0;
 let lastEnemySpawnAt = 0;
+let lastSonicBoomAt = 0;
+let wasAboveSonicThreshold = false;
 
 function createProcessedSprite(image, options = {}) {
   const sourceCanvas = document.createElement("canvas");
@@ -352,6 +359,7 @@ function resetGame() {
   enemyBullets.length = 0;
   smoke.length = 0;
   sparks.length = 0;
+  sonicBooms.length = 0;
   enemies.length = 0;
 
   input.mouseDown = false;
@@ -370,7 +378,24 @@ function resetGame() {
   lastRocketShotAt = 0;
   lastSmokeAt = 0;
   lastEnemySpawnAt = performance.now();
+  lastSonicBoomAt = 0;
+  wasAboveSonicThreshold = false;
   updateOverlay();
+}
+
+function spawnSonicBoom(now) {
+  sonicBooms.push({
+    x: ship.x,
+    y: ship.y,
+    bornAt: now,
+    life: SONIC_BOOM_LIFE,
+    startRadius: ship.width * 0.24,
+    endRadius: ship.width * 0.72,
+  });
+
+  if (sonicBooms.length > MAX_SONIC_BOOMS) {
+    sonicBooms.splice(0, sonicBooms.length - MAX_SONIC_BOOMS);
+  }
 }
 
 function updateShip(deltaSeconds, now) {
@@ -414,6 +439,18 @@ function updateShip(deltaSeconds, now) {
     const turnAmount = clamp(SHIP_TURN_RATE * deltaSeconds, 0, 1);
     ship.angle += angleDelta * turnAmount;
   }
+
+  const aboveSonicThreshold = speed >= SONIC_BOOM_SPEED_THRESHOLD;
+  if (
+    isRoundActive() &&
+    aboveSonicThreshold &&
+    !wasAboveSonicThreshold &&
+    now - lastSonicBoomAt >= SONIC_BOOM_COOLDOWN
+  ) {
+    spawnSonicBoom(now);
+    lastSonicBoomAt = now;
+  }
+  wasAboveSonicThreshold = aboveSonicThreshold;
 
   if (ship.hitFlashUntil < now) {
     ship.hitFlashUntil = 0;
@@ -726,6 +763,15 @@ function updateSparks(deltaSeconds, now) {
   }
 }
 
+function updateSonicBooms(now) {
+  for (let index = sonicBooms.length - 1; index >= 0; index -= 1) {
+    const boom = sonicBooms[index];
+    if (now - boom.bornAt > boom.life) {
+      sonicBooms.splice(index, 1);
+    }
+  }
+}
+
 function intersectsCircle(targetX, targetY, radius, projectile) {
   return Math.hypot(projectile.x - targetX, projectile.y - targetY) <= radius + projectile.radius;
 }
@@ -908,6 +954,29 @@ function drawSparks(now) {
   }
 }
 
+function drawSonicBooms(now) {
+  for (const boom of sonicBooms) {
+    const age = clamp((now - boom.bornAt) / boom.life, 0, 1);
+    const radius = boom.startRadius + (boom.endRadius - boom.startRadius) * age;
+    const opacity = 0.34 * (1 - age);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.strokeStyle = `rgba(195, 230, 255, ${opacity})`;
+    ctx.lineWidth = 1.5 + 5.5 * (1 - age);
+    ctx.beginPath();
+    ctx.arc(boom.x, boom.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(120, 190, 255, ${opacity * 0.7})`;
+    ctx.lineWidth = 1.1 + 3.8 * (1 - age);
+    ctx.beginPath();
+    ctx.arc(boom.x, boom.y, radius * 1.18, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawEnemy(enemy, now) {
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
@@ -1041,6 +1110,7 @@ function gameLoop(now) {
   updateProjectiles(enemyBullets, deltaSeconds, now, ENEMY_BULLET_LIFE);
   updateSmoke(deltaSeconds, now);
   updateSparks(deltaSeconds, now);
+  updateSonicBooms(now);
 
   if (isRoundActive()) {
     updateEnemies(deltaSeconds, now);
@@ -1051,6 +1121,7 @@ function gameLoop(now) {
   drawBackground();
   drawSmoke(now);
   drawSparks(now);
+  drawSonicBooms(now);
   for (const enemy of enemies) {
     drawEnemy(enemy, now);
   }
