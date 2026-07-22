@@ -1,5 +1,13 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const body = document.body;
+const gameInfo = document.getElementById("game-info");
+const overlay = document.getElementById("overlay");
+const overlayKicker = document.getElementById("overlay-kicker");
+const overlayTitle = document.getElementById("overlay-title");
+const overlayCopy = document.getElementById("overlay-copy");
+const overlayStats = document.getElementById("overlay-stats");
+const overlayButton = document.getElementById("overlay-button");
 
 const background = new Image();
 background.src = "images/warzone-bg.png";
@@ -23,12 +31,16 @@ const PLAYER_FIRE_INTERVAL = 85;
 const ENEMY_BULLET_SPEED = 520;
 const ENEMY_BULLET_LIFE = 2400;
 const PLAYER_BULLET_LIFE = 1600;
-const SMOKE_INTERVAL = 22;
-const SMOKE_LIFE = 900;
+const SMOKE_INTERVAL = 42;
+const SMOKE_LIFE = 520;
 const ENEMY_SPAWN_INTERVAL = 1900;
 const MAX_ENEMIES = 5;
 const ROUND_LENGTH = 30000;
 const PLAYER_HIT_COOLDOWN = 420;
+const HIT_SPARK_LIFE = 180;
+const DEATH_SMOKE_LIFE = 950;
+const MAX_SMOKE_PARTICLES = 55;
+const MAX_SPARK_PARTICLES = 140;
 
 const sprites = {
   player: null,
@@ -85,6 +97,7 @@ const playerBullets = [];
 const enemyBullets = [];
 const smoke = [];
 const enemies = [];
+const sparks = [];
 const input = {
   mouseDown: false,
   spaceDown: false,
@@ -94,7 +107,11 @@ const gameState = {
   startedAt: null,
   ended: false,
   won: false,
+  started: false,
   score: 0,
+  kills: 0,
+  multiplier: 1,
+  overlayMode: "start",
 };
 
 let lastFrameTime = performance.now();
@@ -211,7 +228,95 @@ function getTimeRemaining(now) {
 }
 
 function isRoundActive(now) {
-  return !gameState.ended && getTimeRemaining(now) > 0 && ship.alive;
+  return gameState.started && !gameState.ended && getTimeRemaining(now) > 0 && ship.alive;
+}
+
+function setBodyState(stateName) {
+  body.classList.remove("is-start", "is-running", "is-ended");
+  body.classList.add(stateName);
+}
+
+function updateOverlay() {
+  const nextMode = !gameState.started ? "start" : gameState.ended ? "ended" : "running";
+  if (gameState.overlayMode === nextMode) {
+    return;
+  }
+
+  gameState.overlayMode = nextMode;
+
+  if (nextMode === "start") {
+    gameInfo.hidden = false;
+    overlay.hidden = false;
+    overlay.classList.add("is-visible");
+    overlayKicker.textContent = "SCUFFED AIR SUPERIORITY";
+    overlayTitle.textContent = "BLUE ANGEL WARZONE";
+    overlayCopy.textContent =
+      "Survive for 30 seconds, smoke the enemy birds, and do not let them land five hits.";
+    overlayStats.textContent = "Fighters take 5 hits. Helicopters take 3.";
+    overlayButton.textContent = "START SCRAP";
+    setBodyState("is-start");
+    return;
+  }
+
+  if (nextMode === "running") {
+    gameInfo.hidden = true;
+    overlay.classList.remove("is-visible");
+    overlay.hidden = true;
+    setBodyState("is-running");
+    return;
+  }
+
+  gameInfo.hidden = false;
+  overlay.hidden = false;
+  overlay.classList.add("is-visible");
+  overlayKicker.textContent = gameState.won ? "TIME SURVIVED" : "MISSION FAILED";
+  overlayTitle.textContent = gameState.won ? "YOU LASTED 30 SECONDS" : "SHOT OUT OF THE SKY";
+  overlayCopy.textContent = gameState.won
+    ? "The bird stayed airborne. Hit restart if you want another ugly miracle."
+    : "The sky won that one. Restart and spray harder next round.";
+  overlayStats.textContent = `Score ${gameState.score} | Kills ${gameState.kills} | Multiplier ${gameState.multiplier.toFixed(1)}x`;
+  overlayButton.textContent = "RESTART SCRAP";
+  setBodyState("is-ended");
+}
+
+function resetGame() {
+  ship.x = canvas.width * 0.5;
+  ship.y = canvas.height * 0.62;
+  ship.vx = 0;
+  ship.vy = 0;
+  ship.angle = -SHIP_FORWARD_ANGLE;
+  ship.headingX = 1;
+  ship.headingY = 0;
+  ship.health = SHIP_MAX_HEALTH;
+  ship.alive = true;
+  ship.hitFlashUntil = 0;
+  ship.invulnerableUntil = 0;
+
+  pointer.x = ship.x;
+  pointer.y = ship.y;
+
+  playerBullets.length = 0;
+  enemyBullets.length = 0;
+  smoke.length = 0;
+  sparks.length = 0;
+  enemies.length = 0;
+
+  input.mouseDown = false;
+  input.spaceDown = false;
+
+  gameState.startedAt = performance.now();
+  gameState.ended = false;
+  gameState.won = false;
+  gameState.started = true;
+  gameState.score = 0;
+  gameState.kills = 0;
+  gameState.multiplier = 1;
+  gameState.overlayMode = "start";
+
+  lastPlayerShotAt = 0;
+  lastSmokeAt = 0;
+  lastEnemySpawnAt = performance.now();
+  updateOverlay();
 }
 
 function updateShip(deltaSeconds, now) {
@@ -299,7 +404,7 @@ function spawnEnemyBullet(enemy, now) {
 
 function spawnSmoke(now) {
   const speed = Math.hypot(ship.vx, ship.vy);
-  if (speed < 90 || !ship.alive) {
+  if (speed < 180 || !ship.alive) {
     return;
   }
 
@@ -311,11 +416,62 @@ function spawnSmoke(now) {
   smoke.push({
     x: ship.x - ship.headingX * tailOffset + perpendicularX * sideDrift,
     y: ship.y - ship.headingY * tailOffset + perpendicularY * sideDrift,
-    vx: -ship.headingX * (90 + Math.random() * 85) + (Math.random() - 0.5) * 70,
-    vy: -ship.headingY * (90 + Math.random() * 85) + (Math.random() - 0.5) * 70,
-    size: 12 + Math.random() * 10,
+    vx: -ship.headingX * (65 + Math.random() * 55) + (Math.random() - 0.5) * 34,
+    vy: -ship.headingY * (65 + Math.random() * 55) + (Math.random() - 0.5) * 34,
+    size: 7 + Math.random() * 5,
     bornAt: now,
   });
+
+  if (smoke.length > MAX_SMOKE_PARTICLES) {
+    smoke.splice(0, smoke.length - MAX_SMOKE_PARTICLES);
+  }
+}
+
+function spawnHitSparks(x, y, directionX, directionY, isDeath = false) {
+  const count = isDeath ? 18 : 7;
+  const baseSize = isDeath ? 16 : 6;
+  const life = isDeath ? 420 : HIT_SPARK_LIFE;
+
+  for (let index = 0; index < count; index += 1) {
+    const spread = isDeath ? Math.PI * 2 : 0.9;
+    const baseAngle = Math.atan2(directionY || 0, directionX || 1);
+    const angle = baseAngle + (Math.random() - 0.5) * spread;
+    const speed = (isDeath ? 130 : 90) + Math.random() * (isDeath ? 180 : 110);
+    sparks.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: baseSize + Math.random() * baseSize,
+      bornAt: performance.now(),
+      life,
+      red: isDeath ? 255 : 255,
+      green: isDeath ? 168 : 236,
+      blue: isDeath ? 82 : 183,
+    });
+  }
+
+  if (sparks.length > MAX_SPARK_PARTICLES) {
+    sparks.splice(0, sparks.length - MAX_SPARK_PARTICLES);
+  }
+}
+
+function spawnDeathSmoke(x, y, sourceVx, sourceVy) {
+  for (let index = 0; index < 8; index += 1) {
+    smoke.push({
+      x: x + (Math.random() - 0.5) * 14,
+      y: y + (Math.random() - 0.5) * 14,
+      vx: sourceVx * 0.1 + (Math.random() - 0.5) * 110,
+      vy: sourceVy * 0.1 + (Math.random() - 0.5) * 110,
+      size: 12 + Math.random() * 10,
+      bornAt: performance.now(),
+      life: DEATH_SMOKE_LIFE + Math.random() * 220,
+    });
+  }
+
+  if (smoke.length > MAX_SMOKE_PARTICLES) {
+    smoke.splice(0, smoke.length - MAX_SMOKE_PARTICLES);
+  }
 }
 
 function createEnemy(typeKey, now) {
@@ -360,6 +516,10 @@ function createEnemy(typeKey, now) {
     nextShotAt: now + 900 + Math.random() * 1400,
     sprite,
     hitFlashUntil: 0,
+    orbitDirection: Math.random() < 0.5 ? -1 : 1,
+    orbitStrength: 0.35 + Math.random() * 0.45,
+    strafeTimer: 600 + Math.random() * 850,
+    strafeDirection: Math.random() < 0.5 ? -1 : 1,
   };
 }
 
@@ -378,10 +538,23 @@ function updateEnemyMotion(enemy, deltaSeconds) {
   const distance = Math.hypot(toShipX, toShipY) || 1;
   const directionX = toShipX / distance;
   const directionY = toShipY / distance;
+  const tangentX = -directionY * enemy.orbitDirection;
+  const tangentY = directionX * enemy.orbitDirection;
 
-  const desiredSpeed = distance > 360 ? enemy.speed : enemy.speed * 0.2;
-  const desiredVx = directionX * desiredSpeed;
-  const desiredVy = directionY * desiredSpeed;
+  enemy.strafeTimer -= deltaSeconds * 1000;
+  if (enemy.strafeTimer <= 0) {
+    enemy.strafeDirection *= -1;
+    enemy.strafeTimer = 650 + Math.random() * 950;
+  }
+
+  const orbitBlend = distance > 330 ? enemy.orbitStrength * 0.45 : enemy.orbitStrength;
+  const retreatFactor = distance < 220 ? -0.28 : distance > 420 ? 1 : 0.22;
+  const desiredDirX = directionX * retreatFactor + tangentX * orbitBlend * enemy.strafeDirection;
+  const desiredDirY = directionY * retreatFactor + tangentY * orbitBlend * enemy.strafeDirection;
+  const desiredDirLength = Math.hypot(desiredDirX, desiredDirY) || 1;
+  const desiredSpeed = enemy.speed;
+  const desiredVx = (desiredDirX / desiredDirLength) * desiredSpeed;
+  const desiredVy = (desiredDirY / desiredDirLength) * desiredSpeed;
   const steering = 2.5;
 
   enemy.vx += (desiredVx - enemy.vx) * steering * deltaSeconds;
@@ -444,12 +617,27 @@ function updateSmoke(deltaSeconds, now) {
     const puff = smoke[index];
     puff.x += puff.vx * deltaSeconds;
     puff.y += puff.vy * deltaSeconds;
-    puff.vx *= Math.exp(-1.4 * deltaSeconds);
-    puff.vy *= Math.exp(-1.2 * deltaSeconds);
-    puff.size += 28 * deltaSeconds;
+    puff.vx *= Math.exp(-2.6 * deltaSeconds);
+    puff.vy *= Math.exp(-2.2 * deltaSeconds);
+    puff.size += 12 * deltaSeconds;
 
-    if (now - puff.bornAt > SMOKE_LIFE) {
+    if (now - puff.bornAt > (puff.life || SMOKE_LIFE)) {
       smoke.splice(index, 1);
+    }
+  }
+}
+
+function updateSparks(deltaSeconds, now) {
+  for (let index = sparks.length - 1; index >= 0; index -= 1) {
+    const spark = sparks[index];
+    spark.x += spark.vx * deltaSeconds;
+    spark.y += spark.vy * deltaSeconds;
+    spark.vx *= Math.exp(-5.5 * deltaSeconds);
+    spark.vy *= Math.exp(-5.1 * deltaSeconds);
+    spark.size *= Math.exp(-2.4 * deltaSeconds);
+
+    if (now - spark.bornAt > spark.life) {
+      sparks.splice(index, 1);
     }
   }
 }
@@ -472,7 +660,16 @@ function handleCollisions(now) {
 
       enemy.health -= 1;
       enemy.hitFlashUntil = now + 80;
+      spawnHitSparks(bullet.x, bullet.y, bullet.vx, bullet.vy);
       playerBullets.splice(bulletIndex, 1);
+
+      if (enemy.health <= 0) {
+        gameState.kills += 1;
+        gameState.multiplier = 1 + gameState.kills * 0.1;
+        spawnHitSparks(enemy.x, enemy.y, bullet.vx, bullet.vy, true);
+        spawnDeathSmoke(enemy.x, enemy.y, enemy.vx, enemy.vy);
+      }
+
       hitEnemy = true;
       break;
     }
@@ -501,12 +698,15 @@ function handleCollisions(now) {
     ship.health = Math.max(0, ship.health - bullet.damage);
     ship.hitFlashUntil = now + 130;
     ship.invulnerableUntil = now + PLAYER_HIT_COOLDOWN;
+    spawnHitSparks(bullet.x, bullet.y, bullet.vx, bullet.vy);
     enemyBullets.splice(bulletIndex, 1);
 
     if (ship.health === 0) {
       ship.alive = false;
       gameState.ended = true;
       gameState.won = false;
+      spawnHitSparks(ship.x, ship.y, ship.vx, ship.vy, true);
+      spawnDeathSmoke(ship.x, ship.y, ship.vx, ship.vy);
       break;
     }
   }
@@ -563,26 +763,25 @@ function drawProjectiles(projectiles) {
 
 function drawSmoke(now) {
   for (const puff of smoke) {
-    const age = (now - puff.bornAt) / SMOKE_LIFE;
-    const opacity = Math.max(0, 0.52 * (1 - age));
-    const gradient = ctx.createRadialGradient(
-      puff.x,
-      puff.y,
-      puff.size * 0.15,
-      puff.x,
-      puff.y,
-      puff.size
-    );
-    gradient.addColorStop(0, `rgba(242, 241, 233, ${opacity})`);
-    gradient.addColorStop(0.45, `rgba(148, 154, 161, ${opacity * 0.75})`);
-    gradient.addColorStop(1, "rgba(36, 40, 48, 0)");
-
-    ctx.filter = "blur(2px)";
-    ctx.fillStyle = gradient;
+    const age = (now - puff.bornAt) / (puff.life || SMOKE_LIFE);
+    const opacity = Math.max(0, 0.22 * (1 - age));
+    ctx.fillStyle = `rgba(182, 186, 192, ${opacity})`;
     ctx.beginPath();
     ctx.arc(puff.x, puff.y, puff.size, 0, Math.PI * 2);
     ctx.fill();
-    ctx.filter = "none";
+  }
+}
+
+function drawSparks(now) {
+  for (const spark of sparks) {
+    const age = (now - spark.bornAt) / spark.life;
+    const opacity = Math.max(0, 1 - age);
+    ctx.strokeStyle = `rgba(${spark.red}, ${spark.green}, ${spark.blue}, ${opacity})`;
+    ctx.lineWidth = Math.max(1.2, spark.size * 0.24);
+    ctx.beginPath();
+    ctx.moveTo(spark.x, spark.y);
+    ctx.lineTo(spark.x - spark.vx * 0.02, spark.y - spark.vy * 0.02);
+    ctx.stroke();
   }
 }
 
@@ -652,30 +851,22 @@ function drawHud(now) {
 
   ctx.fillStyle = "#f4e8d2";
   ctx.fillText(`TIME ${String(secondsRemaining).padStart(2, "0")}s`, canvas.width - 266, 98);
-  ctx.fillText(`SCORE ${gameState.score}`, canvas.width - 164, 98);
+  ctx.fillText(`KILLS ${gameState.kills}`, canvas.width - 266, 118);
+  ctx.fillText(`X${gameState.multiplier.toFixed(1)}`, canvas.width - 186, 118);
+  ctx.fillText(`SCORE ${gameState.score}`, canvas.width - 148, 98);
   ctx.restore();
 
-  if (!gameState.ended && timeRemaining > 0) {
+  if (!gameState.started || (!gameState.ended && timeRemaining > 0)) {
     return;
   }
-
-  const message = ship.alive ? "YOU LASTED 30 SECONDS" : "SHOT OUT OF THE SKY";
-  const subMessage = ship.alive
-    ? `Score ${gameState.score} | Click reload to run it back in spirit`
-    : `Score ${gameState.score} | Five hits was all she wrote`;
-
-  ctx.fillStyle = "rgba(8, 7, 10, 0.58)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#fff0d1";
-  ctx.textAlign = "center";
-  ctx.font = "700 44px 'Rubik Mono One', sans-serif";
-  ctx.fillText(message, canvas.width * 0.5, canvas.height * 0.5 - 12);
-  ctx.font = "500 20px 'Space Grotesk', sans-serif";
-  ctx.fillText(subMessage, canvas.width * 0.5, canvas.height * 0.5 + 28);
-  ctx.textAlign = "left";
 }
 
 function updateGameState(now) {
+  if (!gameState.started) {
+    updateOverlay();
+    return;
+  }
+
   if (gameState.startedAt === null) {
     gameState.startedAt = now;
   }
@@ -683,6 +874,10 @@ function updateGameState(now) {
   if (!gameState.ended && getTimeRemaining(now) <= 0) {
     gameState.ended = true;
     gameState.won = ship.alive;
+  }
+
+  if (gameState.ended) {
+    updateOverlay();
   }
 }
 
@@ -722,6 +917,7 @@ function gameLoop(now) {
   updateProjectiles(playerBullets, deltaSeconds, now, PLAYER_BULLET_LIFE);
   updateProjectiles(enemyBullets, deltaSeconds, now, ENEMY_BULLET_LIFE);
   updateSmoke(deltaSeconds, now);
+  updateSparks(deltaSeconds, now);
 
   if (isRoundActive(now)) {
     updateEnemies(deltaSeconds, now);
@@ -731,6 +927,7 @@ function gameLoop(now) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground();
   drawSmoke(now);
+  drawSparks(now);
   for (const enemy of enemies) {
     drawEnemy(enemy, now);
   }
@@ -784,5 +981,10 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
+overlayButton.addEventListener("click", () => {
+  resetGame();
+});
+
 resizeCanvas();
+updateOverlay();
 requestAnimationFrame(gameLoop);

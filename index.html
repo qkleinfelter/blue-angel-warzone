@@ -15,13 +15,25 @@
   <body>
     <canvas id="game"></canvas>
 
-    <div class="hud">
+    <div class="hud" id="game-info">
       <p class="eyebrow">SCUFFED AIR SUPERIORITY</p>
       <h1>BLUE ANGEL<br />WARZONE</h1>
       <p class="instructions">
         Move the mouse to drag the jet around. Hold left click or press space to
         fire, survive 30 seconds, and do not eat five return shots.
       </p>
+    </div>
+
+    <div class="overlay is-visible" id="overlay">
+      <div class="overlay-panel">
+        <p class="eyebrow" id="overlay-kicker">SCUFFED AIR SUPERIORITY</p>
+        <h2 id="overlay-title">BLUE ANGEL WARZONE</h2>
+        <p class="overlay-copy" id="overlay-copy">
+          Survive for 30 seconds, smoke the enemy birds, and do not let them land five hits.
+        </p>
+        <div class="overlay-stats" id="overlay-stats"></div>
+        <button class="overlay-button" id="overlay-button" type="button">START SCRAP</button>
+      </div>
     </div>
 
     <script src="script.js"></script>

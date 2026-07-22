@@ -31,6 +31,21 @@ body {
   height: 100vh;
 }
 
+body.is-running .hud {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+body.is-running .overlay {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.is-start .hud,
+body.is-ended .hud {
+  opacity: 1;
+}
+
 .hud {
   position: fixed;
   top: 1.25rem;
@@ -46,6 +61,7 @@ body {
   backdrop-filter: blur(12px);
   box-shadow: 0 1.2rem 3rem rgba(0, 0, 0, 0.28);
   pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
 .eyebrow {
@@ -72,6 +88,69 @@ h1 {
   line-height: 1.45;
 }
 
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: linear-gradient(180deg, rgba(6, 5, 7, 0.34), rgba(8, 7, 10, 0.7));
+  transition: opacity 180ms ease;
+}
+
+.overlay-panel {
+  width: min(36rem, 100%);
+  padding: 1.5rem;
+  color: var(--text-main);
+  background:
+    linear-gradient(135deg, rgba(255, 125, 54, 0.2), rgba(12, 12, 14, 0.84)),
+    var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 1.2rem;
+  box-shadow: 0 1.8rem 3.2rem rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(14px);
+}
+
+.overlay-panel h2 {
+  margin: 0;
+  font-family: "Rubik Mono One", sans-serif;
+  font-size: clamp(1.8rem, 4vw, 2.9rem);
+  line-height: 1;
+}
+
+.overlay-copy {
+  margin: 0.95rem 0 0;
+  max-width: 38ch;
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.overlay-stats {
+  min-height: 1.5rem;
+  margin-top: 0.8rem;
+  color: #ffdca0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.overlay-button {
+  margin-top: 1.1rem;
+  padding: 0.95rem 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffd36d, #ff8f4b);
+  color: #1a1311;
+  font: 700 0.95rem "Space Grotesk", sans-serif;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.overlay-button:hover {
+  filter: brightness(1.04);
+}
+
 @media (max-width: 640px) {
   .hud {
     top: 0.85rem;
@@ -82,5 +161,9 @@ h1 {
 
   .instructions {
     font-size: 0.88rem;
+  }
+
+  .overlay-panel {
+    padding: 1.15rem;
   }
 }
