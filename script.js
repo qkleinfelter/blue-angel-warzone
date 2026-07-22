@@ -6,18 +6,58 @@ background.src = "images/warzone-bg.png";
 
 const shipImage = new Image();
 shipImage.src = "images/blue-angel.png";
-let shipSprite = null;
+
+const fighterEnemyImage = new Image();
+fighterEnemyImage.src = "images/fighter-jet-enemy.png";
+
+const helicopterEnemyImage = new Image();
+helicopterEnemyImage.src = "images/helicopter-enemy.png";
 
 const SHIP_FORWARD_ANGLE = 2.73;
-const SHIP_SCALE = 0.3;
 const SHIP_PULL = 10.5;
 const SHIP_DRAG = 4.6;
 const SHIP_MAX_SPEED = 1500;
-const BULLET_SPEED = 1100;
-const FIRE_INTERVAL = 85;
-const BULLET_LIFE = 1600;
+const SHIP_MAX_HEALTH = 5;
+const PLAYER_BULLET_SPEED = 1100;
+const PLAYER_FIRE_INTERVAL = 85;
+const ENEMY_BULLET_SPEED = 520;
+const ENEMY_BULLET_LIFE = 2400;
+const PLAYER_BULLET_LIFE = 1600;
 const SMOKE_INTERVAL = 22;
 const SMOKE_LIFE = 900;
+const ENEMY_SPAWN_INTERVAL = 1900;
+const MAX_ENEMIES = 5;
+const ROUND_LENGTH = 30000;
+const PLAYER_HIT_COOLDOWN = 420;
+
+const sprites = {
+  player: null,
+  fighter: null,
+  helicopter: null,
+};
+
+const enemyTypes = {
+  fighter: {
+    key: "fighter",
+    image: fighterEnemyImage,
+    health: 5,
+    speed: 205,
+    fireInterval: 1750,
+    bulletDamage: 1,
+    angleOffset: Math.PI / 2,
+    width: 150,
+  },
+  helicopter: {
+    key: "helicopter",
+    image: helicopterEnemyImage,
+    health: 3,
+    speed: 160,
+    fireInterval: 2200,
+    bulletDamage: 1,
+    angleOffset: 0,
+    width: 170,
+  },
+};
 
 const pointer = {
   x: window.innerWidth * 0.5,
@@ -33,50 +73,118 @@ const ship = {
   angle: -SHIP_FORWARD_ANGLE,
   headingX: 1,
   headingY: 0,
-  width: 670 * SHIP_SCALE,
-  height: 344 * SHIP_SCALE,
+  width: 202,
+  height: 104,
+  health: SHIP_MAX_HEALTH,
+  alive: true,
+  hitFlashUntil: 0,
+  invulnerableUntil: 0,
 };
 
-const bullets = [];
+const playerBullets = [];
+const enemyBullets = [];
 const smoke = [];
+const enemies = [];
 const input = {
   mouseDown: false,
   spaceDown: false,
 };
 
+const gameState = {
+  startedAt: null,
+  ended: false,
+  won: false,
+  score: 0,
+};
+
 let lastFrameTime = performance.now();
-let lastShotAt = 0;
+let lastPlayerShotAt = 0;
 let lastSmokeAt = 0;
+let lastEnemySpawnAt = 0;
 
-function prepareShipSprite() {
-  if (shipSprite || !shipImage.complete) {
-    return;
-  }
+function createProcessedSprite(image, options = {}) {
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = image.naturalWidth;
+  sourceCanvas.height = image.naturalHeight;
 
-  const spriteCanvas = document.createElement("canvas");
-  spriteCanvas.width = shipImage.naturalWidth;
-  spriteCanvas.height = shipImage.naturalHeight;
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  sourceContext.drawImage(image, 0, 0);
 
-  const spriteContext = spriteCanvas.getContext("2d", { willReadFrequently: true });
-  spriteContext.drawImage(shipImage, 0, 0);
-
-  const imageData = spriteContext.getImageData(0, 0, spriteCanvas.width, spriteCanvas.height);
+  const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
   const { data } = imageData;
+
+  let minX = sourceCanvas.width;
+  let minY = sourceCanvas.height;
+  let maxX = 0;
+  let maxY = 0;
 
   for (let index = 0; index < data.length; index += 4) {
     const red = data[index];
     const green = data[index + 1];
     const blue = data[index + 2];
+    const alpha = data[index + 3];
     const brightness = (red + green + blue) / 3;
     const colorSpread = Math.max(red, green, blue) - Math.min(red, green, blue);
 
-    if (brightness > 244 && colorSpread < 18) {
+    const removeWhite = options.dropWhite && brightness > 244 && colorSpread < 18;
+    const removeBlack =
+      options.dropBlack && red <= options.dropBlack && green <= options.dropBlack && blue <= options.dropBlack;
+
+    if (removeWhite || removeBlack) {
       data[index + 3] = 0;
+      continue;
+    }
+
+    if (alpha > 0) {
+      const pixelIndex = index / 4;
+      const x = pixelIndex % sourceCanvas.width;
+      const y = Math.floor(pixelIndex / sourceCanvas.width);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
     }
   }
 
-  spriteContext.putImageData(imageData, 0, 0);
-  shipSprite = spriteCanvas;
+  sourceContext.putImageData(imageData, 0, 0);
+
+  if (minX > maxX || minY > maxY) {
+    return sourceCanvas;
+  }
+
+  const trimmedCanvas = document.createElement("canvas");
+  trimmedCanvas.width = maxX - minX + 1;
+  trimmedCanvas.height = maxY - minY + 1;
+  const trimmedContext = trimmedCanvas.getContext("2d");
+  trimmedContext.drawImage(
+    sourceCanvas,
+    minX,
+    minY,
+    trimmedCanvas.width,
+    trimmedCanvas.height,
+    0,
+    0,
+    trimmedCanvas.width,
+    trimmedCanvas.height
+  );
+
+  return trimmedCanvas;
+}
+
+function prepareSprites() {
+  if (!sprites.player && shipImage.complete) {
+    sprites.player = createProcessedSprite(shipImage, { dropWhite: true });
+    ship.width = 202;
+    ship.height = (sprites.player.height / sprites.player.width) * ship.width;
+  }
+
+  if (!sprites.fighter && fighterEnemyImage.complete) {
+    sprites.fighter = createProcessedSprite(fighterEnemyImage, { dropBlack: 3 });
+  }
+
+  if (!sprites.helicopter && helicopterEnemyImage.complete) {
+    sprites.helicopter = createProcessedSprite(helicopterEnemyImage, { dropWhite: true });
+  }
 }
 
 function resizeCanvas() {
@@ -94,7 +202,27 @@ function setPointerPosition(clientX, clientY) {
   pointer.active = true;
 }
 
-function updateShip(deltaSeconds) {
+function getTimeRemaining(now) {
+  if (gameState.startedAt === null) {
+    return ROUND_LENGTH;
+  }
+
+  return Math.max(0, ROUND_LENGTH - (now - gameState.startedAt));
+}
+
+function isRoundActive(now) {
+  return !gameState.ended && getTimeRemaining(now) > 0 && ship.alive;
+}
+
+function updateShip(deltaSeconds, now) {
+  if (!ship.alive) {
+    ship.vx *= Math.exp(-6 * deltaSeconds);
+    ship.vy *= Math.exp(-6 * deltaSeconds);
+    ship.x += ship.vx * deltaSeconds;
+    ship.y += ship.vy * deltaSeconds;
+    return;
+  }
+
   const towardPointerX = pointer.x - ship.x;
   const towardPointerY = pointer.y - ship.y;
 
@@ -115,8 +243,8 @@ function updateShip(deltaSeconds) {
   ship.x += ship.vx * deltaSeconds;
   ship.y += ship.vy * deltaSeconds;
 
-  ship.x = clamp(ship.x, 0, canvas.width);
-  ship.y = clamp(ship.y, 0, canvas.height);
+  ship.x = clamp(ship.x, ship.width * 0.3, canvas.width - ship.width * 0.3);
+  ship.y = clamp(ship.y, ship.height * 0.3, canvas.height - ship.height * 0.3);
 
   const speed = Math.hypot(ship.vx, ship.vy);
   if (speed > 5) {
@@ -124,26 +252,54 @@ function updateShip(deltaSeconds) {
     ship.headingY = ship.vy / speed;
     ship.angle = Math.atan2(ship.headingY, ship.headingX) - SHIP_FORWARD_ANGLE;
   }
+
+  if (ship.hitFlashUntil < now) {
+    ship.hitFlashUntil = 0;
+  }
 }
 
 function wantsToFire() {
   return input.mouseDown || input.spaceDown;
 }
 
-function spawnBullet(now) {
+function spawnPlayerBullet(now) {
   const noseOffset = ship.width * 0.36;
-  bullets.push({
+  playerBullets.push({
     x: ship.x + ship.headingX * noseOffset,
     y: ship.y + ship.headingY * noseOffset,
-    vx: ship.headingX * BULLET_SPEED,
-    vy: ship.headingY * BULLET_SPEED,
+    vx: ship.headingX * PLAYER_BULLET_SPEED,
+    vy: ship.headingY * PLAYER_BULLET_SPEED,
     bornAt: now,
+    radius: 8,
+    color: "rgba(255, 255, 255, 0.95)",
+    tailColor: "rgba(255, 120, 34, 0)",
+  });
+}
+
+function spawnEnemyBullet(enemy, now) {
+  const toShipX = ship.x - enemy.x;
+  const toShipY = ship.y - enemy.y;
+  const distance = Math.hypot(toShipX, toShipY) || 1;
+  const directionX = toShipX / distance;
+  const directionY = toShipY / distance;
+  const muzzleOffset = enemy.width * 0.3;
+
+  enemyBullets.push({
+    x: enemy.x + directionX * muzzleOffset,
+    y: enemy.y + directionY * muzzleOffset,
+    vx: directionX * ENEMY_BULLET_SPEED,
+    vy: directionY * ENEMY_BULLET_SPEED,
+    bornAt: now,
+    radius: 10,
+    damage: enemy.bulletDamage,
+    color: "rgba(255, 92, 92, 0.92)",
+    tailColor: "rgba(255, 158, 56, 0)",
   });
 }
 
 function spawnSmoke(now) {
   const speed = Math.hypot(ship.vx, ship.vy);
-  if (speed < 90) {
+  if (speed < 90 || !ship.alive) {
     return;
   }
 
@@ -162,21 +318,123 @@ function spawnSmoke(now) {
   });
 }
 
-function updateBullets(deltaSeconds, now) {
-  for (let index = bullets.length - 1; index >= 0; index -= 1) {
-    const bullet = bullets[index];
-    bullet.x += bullet.vx * deltaSeconds;
-    bullet.y += bullet.vy * deltaSeconds;
+function createEnemy(typeKey, now) {
+  const type = enemyTypes[typeKey];
+  const sprite = sprites[type.key];
+  const aspectRatio = sprite.height / sprite.width;
+  const side = Math.floor(Math.random() * 4);
+  const margin = 120;
 
-    const expired = now - bullet.bornAt > BULLET_LIFE;
+  let x = 0;
+  let y = 0;
+
+  if (side === 0) {
+    x = -margin;
+    y = Math.random() * canvas.height;
+  } else if (side === 1) {
+    x = canvas.width + margin;
+    y = Math.random() * canvas.height;
+  } else if (side === 2) {
+    x = Math.random() * canvas.width;
+    y = -margin;
+  } else {
+    x = Math.random() * canvas.width;
+    y = canvas.height + margin;
+  }
+
+  return {
+    type: type.key,
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    width: type.width,
+    height: type.width * aspectRatio,
+    angle: 0,
+    angleOffset: type.angleOffset,
+    speed: type.speed,
+    health: type.health,
+    maxHealth: type.health,
+    fireInterval: type.fireInterval,
+    bulletDamage: type.bulletDamage,
+    nextShotAt: now + 900 + Math.random() * 1400,
+    sprite,
+    hitFlashUntil: 0,
+  };
+}
+
+function spawnEnemy(now) {
+  if (enemies.length >= MAX_ENEMIES) {
+    return;
+  }
+
+  const typeKey = Math.random() < 0.55 ? "helicopter" : "fighter";
+  enemies.push(createEnemy(typeKey, now));
+}
+
+function updateEnemyMotion(enemy, deltaSeconds) {
+  const toShipX = ship.x - enemy.x;
+  const toShipY = ship.y - enemy.y;
+  const distance = Math.hypot(toShipX, toShipY) || 1;
+  const directionX = toShipX / distance;
+  const directionY = toShipY / distance;
+
+  const desiredSpeed = distance > 360 ? enemy.speed : enemy.speed * 0.2;
+  const desiredVx = directionX * desiredSpeed;
+  const desiredVy = directionY * desiredSpeed;
+  const steering = 2.5;
+
+  enemy.vx += (desiredVx - enemy.vx) * steering * deltaSeconds;
+  enemy.vy += (desiredVy - enemy.vy) * steering * deltaSeconds;
+  enemy.x += enemy.vx * deltaSeconds;
+  enemy.y += enemy.vy * deltaSeconds;
+  enemy.angle = Math.atan2(enemy.vy, enemy.vx) + enemy.angleOffset;
+}
+
+function updateEnemies(deltaSeconds, now) {
+  for (let index = enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = enemies[index];
+    updateEnemyMotion(enemy, deltaSeconds);
+
+    if (enemy.hitFlashUntil < now) {
+      enemy.hitFlashUntil = 0;
+    }
+
+    if (ship.alive && now >= enemy.nextShotAt && !gameState.ended) {
+      spawnEnemyBullet(enemy, now);
+      enemy.nextShotAt = now + enemy.fireInterval + Math.random() * 800;
+    }
+
+    const tooFarAway =
+      enemy.x < -220 ||
+      enemy.x > canvas.width + 220 ||
+      enemy.y < -220 ||
+      enemy.y > canvas.height + 220;
+
+    if (enemy.health <= 0 || tooFarAway) {
+      if (enemy.health <= 0) {
+        gameState.score += enemy.type === "fighter" ? 150 : 100;
+      }
+      enemies.splice(index, 1);
+    }
+  }
+}
+
+function updateProjectiles(projectiles, deltaSeconds, now, maxLife) {
+  for (let index = projectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = projectiles[index];
+    projectile.x += projectile.vx * deltaSeconds;
+    projectile.y += projectile.vy * deltaSeconds;
+
+    const expired = now - projectile.bornAt > maxLife;
     const offscreen =
-      bullet.x < -50 ||
-      bullet.x > canvas.width + 50 ||
-      bullet.y < -50 ||
-      bullet.y > canvas.height + 50;
+      projectile.x < -70 ||
+      projectile.x > canvas.width + 70 ||
+      projectile.y < -70 ||
+      projectile.y > canvas.height + 70;
 
     if (expired || offscreen) {
-      bullets.splice(index, 1);
+      projectiles.splice(index, 1);
     }
   }
 }
@@ -192,6 +450,64 @@ function updateSmoke(deltaSeconds, now) {
 
     if (now - puff.bornAt > SMOKE_LIFE) {
       smoke.splice(index, 1);
+    }
+  }
+}
+
+function intersectsCircle(targetX, targetY, radius, projectile) {
+  return Math.hypot(projectile.x - targetX, projectile.y - targetY) <= radius + projectile.radius;
+}
+
+function handleCollisions(now) {
+  for (let bulletIndex = playerBullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
+    const bullet = playerBullets[bulletIndex];
+    let hitEnemy = false;
+
+    for (let enemyIndex = enemies.length - 1; enemyIndex >= 0; enemyIndex -= 1) {
+      const enemy = enemies[enemyIndex];
+      const radius = Math.max(enemy.width, enemy.height) * 0.24;
+      if (!intersectsCircle(enemy.x, enemy.y, radius, bullet)) {
+        continue;
+      }
+
+      enemy.health -= 1;
+      enemy.hitFlashUntil = now + 80;
+      playerBullets.splice(bulletIndex, 1);
+      hitEnemy = true;
+      break;
+    }
+
+    if (hitEnemy) {
+      continue;
+    }
+  }
+
+  if (!ship.alive) {
+    return;
+  }
+
+  for (let bulletIndex = enemyBullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
+    const bullet = enemyBullets[bulletIndex];
+    const radius = Math.max(ship.width, ship.height) * 0.2;
+    if (!intersectsCircle(ship.x, ship.y, radius, bullet)) {
+      continue;
+    }
+
+    if (now < ship.invulnerableUntil) {
+      enemyBullets.splice(bulletIndex, 1);
+      continue;
+    }
+
+    ship.health = Math.max(0, ship.health - bullet.damage);
+    ship.hitFlashUntil = now + 130;
+    ship.invulnerableUntil = now + PLAYER_HIT_COOLDOWN;
+    enemyBullets.splice(bulletIndex, 1);
+
+    if (ship.health === 0) {
+      ship.alive = false;
+      gameState.ended = true;
+      gameState.won = false;
+      break;
     }
   }
 }
@@ -219,28 +535,28 @@ function drawBackground() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-function drawBullets() {
-  for (const bullet of bullets) {
-    const bulletSpeed = Math.hypot(bullet.vx, bullet.vy) || 1;
-    const directionX = bullet.vx / bulletSpeed;
-    const directionY = bullet.vy / bulletSpeed;
-    const trailX = bullet.x - directionX * 22;
-    const trailY = bullet.y - directionY * 22;
+function drawProjectiles(projectiles) {
+  for (const projectile of projectiles) {
+    const projectileSpeed = Math.hypot(projectile.vx, projectile.vy) || 1;
+    const directionX = projectile.vx / projectileSpeed;
+    const directionY = projectile.vy / projectileSpeed;
+    const trailX = projectile.x - directionX * 22;
+    const trailY = projectile.y - directionY * 22;
 
-    const gradient = ctx.createLinearGradient(bullet.x, bullet.y, trailX, trailY);
-    gradient.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-    gradient.addColorStop(1, "rgba(255, 120, 34, 0)");
+    const gradient = ctx.createLinearGradient(projectile.x, projectile.y, trailX, trailY);
+    gradient.addColorStop(0, projectile.color);
+    gradient.addColorStop(1, projectile.tailColor);
 
     ctx.strokeStyle = gradient;
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(bullet.x, bullet.y);
+    ctx.moveTo(projectile.x, projectile.y);
     ctx.lineTo(trailX, trailY);
     ctx.stroke();
 
-    ctx.fillStyle = "#ffe6a7";
+    ctx.fillStyle = projectile.color;
     ctx.beginPath();
-    ctx.arc(bullet.x, bullet.y, 2.6, 0, Math.PI * 2);
+    ctx.arc(projectile.x, projectile.y, projectile.radius * 0.32, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -270,13 +586,37 @@ function drawSmoke(now) {
   }
 }
 
-function drawShip() {
+function drawEnemy(enemy, now) {
+  ctx.save();
+  ctx.translate(enemy.x, enemy.y);
+  ctx.rotate(enemy.angle);
+  ctx.shadowColor = enemy.type === "fighter" ? "rgba(255, 70, 70, 0.38)" : "rgba(140, 255, 155, 0.28)";
+  ctx.shadowBlur = 16;
+
+  if (enemy.hitFlashUntil > now) {
+    ctx.globalAlpha = 0.7;
+  }
+
+  ctx.drawImage(enemy.sprite, -enemy.width * 0.5, -enemy.height * 0.5, enemy.width, enemy.height);
+  ctx.restore();
+
+  const barWidth = enemy.width * 0.58;
+  const barX = enemy.x - barWidth * 0.5;
+  const barY = enemy.y - enemy.height * 0.46;
+  ctx.fillStyle = "rgba(15, 15, 18, 0.68)";
+  ctx.fillRect(barX, barY, barWidth, 6);
+  ctx.fillStyle = enemy.type === "fighter" ? "#ff6c6c" : "#9bff8b";
+  ctx.fillRect(barX, barY, barWidth * (enemy.health / enemy.maxHealth), 6);
+}
+
+function drawShip(now) {
   ctx.save();
   ctx.translate(ship.x, ship.y);
   ctx.rotate(ship.angle);
-  ctx.shadowColor = "rgba(30, 80, 255, 0.5)";
-  ctx.shadowBlur = 22;
-  ctx.drawImage(shipSprite, -ship.width * 0.5, -ship.height * 0.5, ship.width, ship.height);
+  ctx.shadowColor = ship.hitFlashUntil > now ? "rgba(255, 90, 90, 0.85)" : "rgba(30, 80, 255, 0.5)";
+  ctx.shadowBlur = ship.hitFlashUntil > now ? 30 : 22;
+  ctx.globalAlpha = ship.alive ? 1 : 0.68;
+  ctx.drawImage(sprites.player, -ship.width * 0.5, -ship.height * 0.5, ship.width, ship.height);
   ctx.restore();
 }
 
@@ -289,42 +629,118 @@ function drawAimPulse(now) {
   ctx.stroke();
 }
 
+function drawHud(now) {
+  const healthBarWidth = 220;
+  const healthBarHeight = 16;
+  const padding = 24;
+  const timeRemaining = getTimeRemaining(now);
+  const secondsRemaining = Math.ceil(timeRemaining / 1000);
+  const healthRatio = ship.health / SHIP_MAX_HEALTH;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(13, 12, 14, 0.7)";
+  ctx.fillRect(canvas.width - 290, 24, 250, 98);
+
+  ctx.fillStyle = "#f4e8d2";
+  ctx.font = "700 14px 'Space Grotesk', sans-serif";
+  ctx.fillText("HULL", canvas.width - 266, 48);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.14)";
+  ctx.fillRect(canvas.width - 266, 58, healthBarWidth, healthBarHeight);
+  ctx.fillStyle = healthRatio > 0.4 ? "#79e082" : "#ff6c6c";
+  ctx.fillRect(canvas.width - 266, 58, healthBarWidth * healthRatio, healthBarHeight);
+
+  ctx.fillStyle = "#f4e8d2";
+  ctx.fillText(`TIME ${String(secondsRemaining).padStart(2, "0")}s`, canvas.width - 266, 98);
+  ctx.fillText(`SCORE ${gameState.score}`, canvas.width - 164, 98);
+  ctx.restore();
+
+  if (!gameState.ended && timeRemaining > 0) {
+    return;
+  }
+
+  const message = ship.alive ? "YOU LASTED 30 SECONDS" : "SHOT OUT OF THE SKY";
+  const subMessage = ship.alive
+    ? `Score ${gameState.score} | Click reload to run it back in spirit`
+    : `Score ${gameState.score} | Five hits was all she wrote`;
+
+  ctx.fillStyle = "rgba(8, 7, 10, 0.58)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#fff0d1";
+  ctx.textAlign = "center";
+  ctx.font = "700 44px 'Rubik Mono One', sans-serif";
+  ctx.fillText(message, canvas.width * 0.5, canvas.height * 0.5 - 12);
+  ctx.font = "500 20px 'Space Grotesk', sans-serif";
+  ctx.fillText(subMessage, canvas.width * 0.5, canvas.height * 0.5 + 28);
+  ctx.textAlign = "left";
+}
+
+function updateGameState(now) {
+  if (gameState.startedAt === null) {
+    gameState.startedAt = now;
+  }
+
+  if (!gameState.ended && getTimeRemaining(now) <= 0) {
+    gameState.ended = true;
+    gameState.won = ship.alive;
+  }
+}
+
 function gameLoop(now) {
   const deltaSeconds = Math.min((now - lastFrameTime) / 1000, 0.033);
   lastFrameTime = now;
 
-  if (!background.complete || !shipImage.complete) {
+  if (!background.complete || !shipImage.complete || !fighterEnemyImage.complete || !helicopterEnemyImage.complete) {
     requestAnimationFrame(gameLoop);
     return;
   }
 
-  prepareShipSprite();
-  if (!shipSprite) {
+  prepareSprites();
+  if (!sprites.player || !sprites.fighter || !sprites.helicopter) {
     requestAnimationFrame(gameLoop);
     return;
   }
 
-  updateShip(deltaSeconds);
+  updateGameState(now);
+  updateShip(deltaSeconds, now);
 
   if (now - lastSmokeAt >= SMOKE_INTERVAL) {
     spawnSmoke(now);
     lastSmokeAt = now;
   }
 
-  if (wantsToFire() && now - lastShotAt >= FIRE_INTERVAL) {
-    spawnBullet(now);
-    lastShotAt = now;
+  if (isRoundActive(now) && wantsToFire() && now - lastPlayerShotAt >= PLAYER_FIRE_INTERVAL) {
+    spawnPlayerBullet(now);
+    lastPlayerShotAt = now;
   }
 
-  updateBullets(deltaSeconds, now);
+  if (isRoundActive(now) && now - lastEnemySpawnAt >= ENEMY_SPAWN_INTERVAL) {
+    spawnEnemy(now);
+    lastEnemySpawnAt = now;
+  }
+
+  updateProjectiles(playerBullets, deltaSeconds, now, PLAYER_BULLET_LIFE);
+  updateProjectiles(enemyBullets, deltaSeconds, now, ENEMY_BULLET_LIFE);
   updateSmoke(deltaSeconds, now);
+
+  if (isRoundActive(now)) {
+    updateEnemies(deltaSeconds, now);
+    handleCollisions(now);
+  }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground();
   drawSmoke(now);
-  drawBullets();
-  drawAimPulse(now);
-  drawShip();
+  for (const enemy of enemies) {
+    drawEnemy(enemy, now);
+  }
+  drawProjectiles(enemyBullets);
+  drawProjectiles(playerBullets);
+  if (ship.alive) {
+    drawAimPulse(now);
+  }
+  drawShip(now);
+  drawHud(now);
 
   requestAnimationFrame(gameLoop);
 }
@@ -369,5 +785,4 @@ window.addEventListener("keyup", (event) => {
 });
 
 resizeCanvas();
-shipImage.addEventListener("load", prepareShipSprite);
 requestAnimationFrame(gameLoop);
