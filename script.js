@@ -21,6 +21,9 @@ fighterEnemyImage.src = "images/fighter-jet-enemy.png";
 const helicopterEnemyImage = new Image();
 helicopterEnemyImage.src = "images/helicopter-enemy.png";
 
+const concordeEnemyImage = new Image();
+concordeEnemyImage.src = "images/concorde.png";
+
 const SHIP_FORWARD_ANGLE = 2.73;
 const SHIP_TURN_RATE = 14;
 const SHIP_PULL = 10.5;
@@ -58,11 +61,13 @@ const MAX_SPARK_PARTICLES = 140;
 const TIME_MULTIPLIER_RATE = 0.1;
 const TIME_MULTIPLIER_STEP_MS = 12000;
 const DIFFICULTY_STEP_MS = 15000;
+const CONCORDE_UNLOCK_MS = 20000;
 
 const sprites = {
   player: null,
   fighter: null,
   helicopter: null,
+  concorde: null,
 };
 
 const enemyTypes = {
@@ -70,7 +75,7 @@ const enemyTypes = {
     key: "fighter",
     image: fighterEnemyImage,
     health: 5,
-    speed: 205,
+    speed: 265,
     fireInterval: 1750,
     bulletDamage: 1,
     angleOffset: Math.PI / 2,
@@ -80,11 +85,21 @@ const enemyTypes = {
     key: "helicopter",
     image: helicopterEnemyImage,
     health: 3,
-    speed: 160,
+    speed: 165,
     fireInterval: 2200,
     bulletDamage: 1,
     angleOffset: 0,
     width: 170,
+  },
+  concorde: {
+    key: "concorde",
+    image: concordeEnemyImage,
+    health: 9,
+    speed: 345,
+    fireInterval: 1500,
+    bulletDamage: 1,
+    angleOffset: Math.PI / 2,
+    width: 190,
   },
 };
 
@@ -220,6 +235,10 @@ function prepareSprites() {
 
   if (!sprites.helicopter && helicopterEnemyImage.complete) {
     sprites.helicopter = createProcessedSprite(helicopterEnemyImage, { dropWhite: true });
+  }
+
+  if (!sprites.concorde && concordeEnemyImage.complete) {
+    sprites.concorde = createProcessedSprite(concordeEnemyImage, { dropWhite: true });
   }
 }
 
@@ -591,7 +610,13 @@ function spawnEnemy(now) {
     return;
   }
 
-  const typeKey = Math.random() < 0.55 ? "helicopter" : "fighter";
+  const elapsedMs = getElapsedTime(now);
+  let typeKey = Math.random() < 0.5 ? "helicopter" : "fighter";
+
+  if (elapsedMs >= CONCORDE_UNLOCK_MS && Math.random() < 0.24) {
+    typeKey = "concorde";
+  }
+
   enemies.push(createEnemy(typeKey, now));
 }
 
@@ -707,7 +732,7 @@ function intersectsCircle(targetX, targetY, radius, projectile) {
 
 function handleEnemyDestroyed(enemy, sourceVx, sourceVy) {
   gameState.kills += 1;
-  const baseScore = enemy.type === "fighter" ? 150 : 100;
+  const baseScore = enemy.type === "concorde" ? 240 : enemy.type === "fighter" ? 150 : 100;
   gameState.score += Math.round(baseScore * gameState.multiplier);
   spawnHitSparks(enemy.x, enemy.y, sourceVx, sourceVy, true);
   spawnDeathSmoke(enemy.x, enemy.y, enemy.vx, enemy.vy);
@@ -887,7 +912,11 @@ function drawEnemy(enemy, now) {
   ctx.save();
   ctx.translate(enemy.x, enemy.y);
   ctx.rotate(enemy.angle);
-  ctx.shadowColor = enemy.type === "fighter" ? "rgba(255, 70, 70, 0.38)" : "rgba(140, 255, 155, 0.28)";
+  ctx.shadowColor = enemy.type === "fighter"
+    ? "rgba(255, 70, 70, 0.38)"
+    : enemy.type === "concorde"
+      ? "rgba(255, 208, 120, 0.34)"
+      : "rgba(140, 255, 155, 0.28)";
   ctx.shadowBlur = 16;
 
   if (enemy.hitFlashUntil > now) {
@@ -902,7 +931,7 @@ function drawEnemy(enemy, now) {
   const barY = enemy.y - enemy.height * 0.46;
   ctx.fillStyle = "rgba(15, 15, 18, 0.68)";
   ctx.fillRect(barX, barY, barWidth, 6);
-  ctx.fillStyle = enemy.type === "fighter" ? "#ff6c6c" : "#9bff8b";
+  ctx.fillStyle = enemy.type === "fighter" ? "#ff6c6c" : enemy.type === "concorde" ? "#ffd486" : "#9bff8b";
   ctx.fillRect(barX, barY, barWidth * (enemy.health / enemy.maxHealth), 6);
 }
 
@@ -974,13 +1003,13 @@ function gameLoop(now) {
   const deltaSeconds = Math.min((now - lastFrameTime) / 1000, 0.033);
   lastFrameTime = now;
 
-  if (!background.complete || !shipImage.complete || !fighterEnemyImage.complete || !helicopterEnemyImage.complete) {
+  if (!background.complete || !shipImage.complete || !fighterEnemyImage.complete || !helicopterEnemyImage.complete || !concordeEnemyImage.complete) {
     requestAnimationFrame(gameLoop);
     return;
   }
 
   prepareSprites();
-  if (!sprites.player || !sprites.fighter || !sprites.helicopter) {
+  if (!sprites.player || !sprites.fighter || !sprites.helicopter || !sprites.concorde) {
     requestAnimationFrame(gameLoop);
     return;
   }
