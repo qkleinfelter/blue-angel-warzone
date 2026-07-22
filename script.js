@@ -31,11 +31,13 @@ const SHIP_MAX_HEALTH = 5;
 const PLAYER_BULLET_SPEED = 1100;
 const PLAYER_FIRE_INTERVAL = 85;
 const PLAYER_BULLET_LIFE = 1600;
+const PLAYER_BULLET_DAMAGE = 1;
 const ROCKET_SPEED = 540;
 const ROCKET_FIRE_INTERVAL = 380;
 const ROCKET_LIFE = 1900;
-const ROCKET_DAMAGE = 3;
-const ROCKET_SPLASH_RADIUS = 96;
+const ROCKET_DAMAGE = PLAYER_BULLET_DAMAGE * 2.5;
+const ROCKET_SPLASH_RADIUS = 150;
+const ROCKET_MIN_FALLOFF_DAMAGE = 0.6;
 
 const ENEMY_BULLET_SPEED = 520;
 const ENEMY_BULLET_LIFE = 2400;
@@ -413,7 +415,7 @@ function spawnPlayerBullet(now) {
     bornAt: now,
     life: PLAYER_BULLET_LIFE,
     radius: 8,
-    damage: 1,
+    damage: PLAYER_BULLET_DAMAGE,
     type: "bullet",
     color: "rgba(255, 255, 255, 0.95)",
     tailColor: "rgba(255, 120, 34, 0)",
@@ -740,7 +742,7 @@ function detonateRocket(rocket, now) {
     }
 
     const falloff = 1 - distance / rocket.splashRadius;
-    const damage = Math.max(1, Math.round(rocket.damage * Math.max(0.45, falloff)));
+    const damage = Math.max(1, Math.round(rocket.damage * Math.max(ROCKET_MIN_FALLOFF_DAMAGE, falloff)));
     applyDamageToEnemy(enemy, damage, rocket.x, rocket.y, rocket.vx, rocket.vy, now);
   }
 }
